@@ -1,0 +1,1236 @@
+<!DOCTYPE html>
+<html lang="zh-Hant">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no, viewport-fit=cover">
+    <meta name="apple-mobile-web-app-capable" content="yes">
+    <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
+    <meta name="apple-mobile-web-app-title" content="親人辨識">
+    <title>親人辨識助手 - iOS 優化版</title>
+    <script src="https://cdn.jsdelivr.net/npm/@tensorflow/tfjs@latest/dist/tf.min.js"></script>
+    <script src="https://cdn.jsdelivr.net/npm/@tensorflow-models/blazeface@0.0.7/dist/blazeface.min.js"></script>
+    <script src="https://cdn.jsdelivr.net/npm/@teachablemachine/image@latest/dist/teachablemachine-image.min.js"></script>
+    <style>
+        :root {
+            --bg-primary: #FFF8E7;
+            --bg-secondary: #FFF1D0;
+            --text-primary: #2D1810;
+            --text-secondary: #5D4037;
+            --accent: #E65100;
+            --accent-light: #FF8A50;
+            --success: #2E7D32;
+            --card-bg: #FFFFFF;
+            --shadow: rgba(45, 24, 16, 0.15);
+            --safe-top: env(safe-area-inset-top);
+            --safe-bottom: env(safe-area-inset-bottom);
+        }
+
+        .dark {
+            --bg-primary: #1A1A2E;
+            --bg-secondary: #16213E;
+            --text-primary: #EAEAEA;
+            --text-secondary: #B8B8B8;
+            --accent: #FF6B35;
+            --accent-light: #FF8A50;
+            --success: #4CAF50;
+            --card-bg: #0F3460;
+            --shadow: rgba(0, 0, 0, 0.4);
+        }
+
+        * {
+            margin: 0;
+            padding: 0;
+            box-sizing: border-box;
+            -webkit-tap-highlight-color: transparent;
+            -webkit-touch-callout: none;
+            -webkit-user-select: none;
+            user-select: none;
+        }
+
+        html, body {
+            height: 100%;
+            overflow-x: hidden;
+        }
+
+        body {
+            font-family: -apple-system, BlinkMacSystemFont, 'PingFang TC', 'Heiti TC', 'Microsoft JhengHei', sans-serif;
+            background: var(--bg-primary);
+            color: var(--text-primary);
+            min-height: 100vh;
+            min-height: -webkit-fill-available;
+            transition: all 0.3s ease;
+            padding-top: var(--safe-top);
+            padding-bottom: var(--safe-bottom);
+        }
+
+        .container {
+            max-width: 900px;
+            margin: 0 auto;
+            padding: 15px;
+            padding-bottom: calc(20px + var(--safe-bottom));
+        }
+
+        header {
+            text-align: center;
+            padding: 20px 15px;
+            background: linear-gradient(135deg, var(--accent) 0%, var(--accent-light) 100%);
+            border-radius: 20px;
+            margin-bottom: 20px;
+            box-shadow: 0 8px 32px var(--shadow);
+        }
+
+        h1 {
+            font-size: 2rem;
+            color: white;
+            text-shadow: 2px 2px 4px rgba(0,0,0,0.2);
+            letter-spacing: 2px;
+        }
+
+        .subtitle {
+            color: rgba(255,255,255,0.9);
+            font-size: 1.1rem;
+            margin-top: 6px;
+        }
+
+        .theme-toggle {
+            position: fixed;
+            top: calc(15px + var(--safe-top));
+            right: 15px;
+            background: var(--card-bg);
+            border: none;
+            border-radius: 50%;
+            width: 44px;
+            height: 44px;
+            font-size: 1.3rem;
+            cursor: pointer;
+            box-shadow: 0 4px 15px var(--shadow);
+            z-index: 100;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+        }
+
+        .video-container {
+            position: relative;
+            background: var(--card-bg);
+            border-radius: 20px;
+            overflow: hidden;
+            box-shadow: 0 12px 40px var(--shadow);
+            margin-bottom: 20px;
+        }
+
+        #webcam-container {
+            width: 100%;
+            display: flex;
+            justify-content: center;
+            align-items: center;
+            min-height: 280px;
+            background: linear-gradient(45deg, #1a1a2e 25%, #16213e 50%, #1a1a2e 75%);
+        }
+
+        #webcam-container canvas,
+        #webcam-container video {
+            width: 100% !important;
+            height: auto !important;
+            max-height: 400px;
+            object-fit: cover;
+        }
+
+        .status-bar {
+            padding: 14px 20px;
+            background: var(--bg-secondary);
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            gap: 10px;
+            flex-wrap: wrap;
+        }
+
+        .status-dot {
+            width: 16px;
+            height: 16px;
+            border-radius: 50%;
+            background: #9E9E9E;
+            animation: pulse 2s infinite;
+        }
+
+        .status-dot.active { background: var(--success); }
+        .status-dot.detecting { background: var(--accent); }
+        .status-dot.no-face { background: #FF5722; }
+
+        @keyframes pulse {
+            0%, 100% { opacity: 1; transform: scale(1); }
+            50% { opacity: 0.7; transform: scale(1.15); }
+        }
+
+        .status-text {
+            font-size: 1.2rem;
+            font-weight: 600;
+        }
+
+        .face-indicator {
+            padding: 5px 14px;
+            border-radius: 20px;
+            font-size: 0.95rem;
+            font-weight: 600;
+        }
+
+        .face-indicator.detected {
+            background: var(--success);
+            color: white;
+        }
+
+        .face-indicator.not-detected {
+            background: #FF5722;
+            color: white;
+        }
+
+        .result-card {
+            background: var(--card-bg);
+            border-radius: 20px;
+            padding: 25px;
+            text-align: center;
+            box-shadow: 0 12px 40px var(--shadow);
+            margin-bottom: 20px;
+            min-height: 160px;
+            display: flex;
+            flex-direction: column;
+            justify-content: center;
+            align-items: center;
+            border: 4px solid transparent;
+            transition: all 0.3s ease;
+        }
+
+        .result-card.recognized {
+            border-color: var(--success);
+            animation: celebrate 0.5s ease;
+        }
+
+        @keyframes celebrate {
+            0%, 100% { transform: scale(1); }
+            50% { transform: scale(1.02); }
+        }
+
+        .result-label {
+            font-size: 1.3rem;
+            color: var(--text-secondary);
+            margin-bottom: 12px;
+        }
+
+        .result-name {
+            font-size: 3rem;
+            font-weight: 700;
+            color: var(--accent);
+            margin-bottom: 8px;
+            letter-spacing: 2px;
+        }
+
+        .result-relation {
+            font-size: 2rem;
+            color: var(--success);
+            font-weight: 600;
+        }
+
+        .waiting-message {
+            font-size: 1.5rem;
+            color: var(--text-secondary);
+        }
+
+        .speaking-indicator {
+            margin-top: 12px;
+            padding: 8px 20px;
+            background: var(--accent);
+            color: white;
+            border-radius: 50px;
+            font-size: 1.1rem;
+            animation: speakPulse 1s infinite;
+        }
+
+        @keyframes speakPulse {
+            0%, 100% { opacity: 1; }
+            50% { opacity: 0.6; }
+        }
+
+        .controls-card {
+            background: var(--card-bg);
+            border-radius: 20px;
+            padding: 20px;
+            box-shadow: 0 12px 40px var(--shadow);
+            margin-bottom: 20px;
+        }
+
+        .volume-control {
+            display: flex;
+            align-items: center;
+            gap: 15px;
+            flex-wrap: wrap;
+            justify-content: center;
+        }
+
+        .volume-label {
+            font-size: 1.3rem;
+            font-weight: 600;
+            display: flex;
+            align-items: center;
+            gap: 10px;
+        }
+
+        .volume-icon {
+            font-size: 1.8rem;
+        }
+
+        .volume-slider {
+            flex: 1;
+            min-width: 180px;
+            max-width: 400px;
+            height: 28px;
+            -webkit-appearance: none;
+            appearance: none;
+            background: linear-gradient(to right, var(--accent) 0%, var(--accent-light) 100%);
+            border-radius: 14px;
+            outline: none;
+            cursor: pointer;
+        }
+
+        .volume-slider::-webkit-slider-thumb {
+            -webkit-appearance: none;
+            appearance: none;
+            width: 44px;
+            height: 44px;
+            border-radius: 50%;
+            background: white;
+            cursor: pointer;
+            box-shadow: 0 4px 15px rgba(0,0,0,0.3);
+            border: 4px solid var(--accent);
+        }
+
+        .volume-value {
+            font-size: 1.5rem;
+            font-weight: 700;
+            color: var(--accent);
+            min-width: 65px;
+            text-align: center;
+        }
+
+        .btn {
+            padding: 18px 35px;
+            font-size: 1.3rem;
+            font-weight: 600;
+            border: none;
+            border-radius: 50px;
+            cursor: pointer;
+            transition: all 0.2s ease;
+            display: inline-flex;
+            align-items: center;
+            justify-content: center;
+            gap: 10px;
+            min-height: 60px;
+            touch-action: manipulation;
+        }
+
+        .btn:active {
+            transform: scale(0.96);
+        }
+
+        .btn-primary {
+            background: linear-gradient(135deg, var(--accent) 0%, var(--accent-light) 100%);
+            color: white;
+            box-shadow: 0 6px 25px rgba(230, 81, 0, 0.4);
+        }
+
+        .btn-primary:disabled {
+            opacity: 0.6;
+            cursor: not-allowed;
+        }
+
+        .btn-speak {
+            background: linear-gradient(135deg, var(--success) 0%, #66BB6A 100%);
+            color: white;
+            box-shadow: 0 6px 25px rgba(46, 125, 50, 0.4);
+        }
+
+        .btn-speech-test {
+            background: linear-gradient(135deg, #1976D2 0%, #42A5F5 100%);
+            color: white;
+            box-shadow: 0 6px 25px rgba(25, 118, 210, 0.4);
+            width: 100%;
+            margin-bottom: 15px;
+        }
+
+        .button-container {
+            display: flex;
+            flex-direction: column;
+            gap: 12px;
+            align-items: center;
+        }
+
+        .button-row {
+            display: flex;
+            gap: 12px;
+            flex-wrap: wrap;
+            justify-content: center;
+            width: 100%;
+        }
+
+        .loading-overlay {
+            position: fixed;
+            top: 0;
+            left: 0;
+            width: 100%;
+            height: 100%;
+            background: rgba(0,0,0,0.9);
+            display: flex;
+            flex-direction: column;
+            justify-content: center;
+            align-items: center;
+            z-index: 1000;
+            padding: 20px;
+        }
+
+        .loading-spinner {
+            width: 80px;
+            height: 80px;
+            border: 6px solid rgba(255,255,255,0.2);
+            border-top-color: var(--accent);
+            border-radius: 50%;
+            animation: spin 1s linear infinite;
+        }
+
+        @keyframes spin {
+            to { transform: rotate(360deg); }
+        }
+
+        .loading-text {
+            color: white;
+            font-size: 1.4rem;
+            margin-top: 25px;
+            text-align: center;
+            line-height: 1.6;
+        }
+
+        .hidden {
+            display: none !important;
+        }
+
+        .prediction-bar {
+            width: 100%;
+            max-width: 400px;
+            margin: 8px auto;
+            display: flex;
+            align-items: center;
+            gap: 10px;
+        }
+
+        .prediction-name {
+            width: 75px;
+            text-align: right;
+            font-size: 1rem;
+            font-weight: 500;
+            color: var(--text-secondary);
+        }
+
+        .prediction-meter {
+            flex: 1;
+            height: 14px;
+            background: var(--bg-secondary);
+            border-radius: 7px;
+            overflow: hidden;
+        }
+
+        .prediction-fill {
+            height: 100%;
+            background: linear-gradient(90deg, var(--accent) 0%, var(--accent-light) 100%);
+            transition: width 0.3s ease;
+            border-radius: 7px;
+        }
+
+        .prediction-percent {
+            width: 55px;
+            font-size: 1rem;
+            font-weight: 500;
+            color: var(--text-secondary);
+        }
+
+        #predictions-container {
+            margin-top: 20px;
+            padding-top: 15px;
+            border-top: 2px solid var(--bg-secondary);
+        }
+
+        .info-section {
+            background: var(--card-bg);
+            border-radius: 20px;
+            padding: 20px;
+            box-shadow: 0 12px 40px var(--shadow);
+            margin-bottom: 20px;
+        }
+
+        .info-title {
+            font-size: 1.2rem;
+            color: var(--text-secondary);
+            margin-bottom: 12px;
+            text-align: center;
+        }
+
+        .family-list {
+            display: flex;
+            flex-wrap: wrap;
+            justify-content: center;
+            gap: 10px;
+        }
+
+        .family-item {
+            background: var(--bg-secondary);
+            padding: 10px 20px;
+            border-radius: 50px;
+            font-size: 1.1rem;
+            font-weight: 500;
+        }
+
+        .family-item strong {
+            color: var(--accent);
+        }
+
+        /* iOS Tips Modal */
+        .ios-modal {
+            position: fixed;
+            top: 0;
+            left: 0;
+            width: 100%;
+            height: 100%;
+            background: rgba(0,0,0,0.85);
+            display: flex;
+            justify-content: center;
+            align-items: center;
+            z-index: 2000;
+            padding: 20px;
+        }
+
+        .ios-modal-content {
+            background: var(--card-bg);
+            border-radius: 24px;
+            padding: 30px 25px;
+            max-width: 400px;
+            width: 100%;
+            text-align: center;
+            box-shadow: 0 20px 60px rgba(0,0,0,0.5);
+        }
+
+        .ios-modal-icon {
+            font-size: 4rem;
+            margin-bottom: 15px;
+        }
+
+        .ios-modal-title {
+            font-size: 1.5rem;
+            font-weight: 700;
+            color: var(--text-primary);
+            margin-bottom: 15px;
+        }
+
+        .ios-modal-text {
+            font-size: 1.1rem;
+            color: var(--text-secondary);
+            line-height: 1.6;
+            margin-bottom: 20px;
+        }
+
+        .ios-modal-steps {
+            text-align: left;
+            background: var(--bg-secondary);
+            border-radius: 16px;
+            padding: 15px 20px;
+            margin-bottom: 20px;
+        }
+
+        .ios-modal-step {
+            display: flex;
+            align-items: flex-start;
+            gap: 12px;
+            margin-bottom: 12px;
+            font-size: 1rem;
+            color: var(--text-primary);
+        }
+
+        .ios-modal-step:last-child {
+            margin-bottom: 0;
+        }
+
+        .step-number {
+            background: var(--accent);
+            color: white;
+            width: 28px;
+            height: 28px;
+            border-radius: 50%;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            font-weight: 700;
+            flex-shrink: 0;
+        }
+
+        .speech-status {
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            gap: 8px;
+            padding: 10px 20px;
+            border-radius: 50px;
+            font-size: 1rem;
+            font-weight: 600;
+            margin-bottom: 15px;
+        }
+
+        .speech-status.not-ready {
+            background: #FFEBEE;
+            color: #C62828;
+        }
+
+        .speech-status.ready {
+            background: #E8F5E9;
+            color: #2E7D32;
+        }
+
+        footer {
+            text-align: center;
+            padding: 15px;
+            color: var(--text-secondary);
+            font-size: 0.9rem;
+        }
+
+        /* Landscape orientation for iPad */
+        @media (orientation: landscape) and (min-width: 768px) {
+            .container {
+                display: grid;
+                grid-template-columns: 1fr 1fr;
+                gap: 20px;
+                max-width: 1200px;
+            }
+
+            header {
+                grid-column: 1 / -1;
+            }
+
+            .video-container {
+                grid-column: 1;
+                margin-bottom: 0;
+            }
+
+            .result-card {
+                grid-column: 2;
+                margin-bottom: 0;
+            }
+
+            .info-section {
+                grid-column: 1;
+            }
+
+            .controls-card {
+                grid-column: 2;
+            }
+
+            .button-container {
+                grid-column: 1 / -1;
+            }
+
+            footer {
+                grid-column: 1 / -1;
+            }
+        }
+
+        /* Portrait mode optimizations */
+        @media (max-width: 500px) {
+            h1 {
+                font-size: 1.6rem;
+            }
+
+            .result-name {
+                font-size: 2.5rem;
+            }
+
+            .result-relation {
+                font-size: 1.7rem;
+            }
+
+            .waiting-message {
+                font-size: 1.3rem;
+            }
+
+            .btn {
+                padding: 16px 28px;
+                font-size: 1.2rem;
+            }
+        }
+    </style>
+</head>
+<body>
+    <!-- Loading Overlay -->
+    <div class="loading-overlay" id="loading">
+        <div class="loading-spinner"></div>
+        <div class="loading-text">正在載入 AI 模型...<br>請稍候</div>
+    </div>
+
+    <!-- iOS Setup Modal -->
+    <div class="ios-modal" id="iosModal">
+        <div class="ios-modal-content">
+            <div class="ios-modal-icon">📱</div>
+            <h2 class="ios-modal-title">歡迎使用親人辨識助手</h2>
+            <p class="ios-modal-text">為確保在 iPad/iPhone 上正常運作，請按照以下步驟操作：</p>
+
+            <div class="ios-modal-steps">
+                <div class="ios-modal-step">
+                    <span class="step-number">1</span>
+                    <span>點擊下方「啟用語音」按鈕</span>
+                </div>
+                <div class="ios-modal-step">
+                    <span class="step-number">2</span>
+                    <span>聽到語音測試後，點擊「開始使用」</span>
+                </div>
+                <div class="ios-modal-step">
+                    <span class="step-number">3</span>
+                    <span>允許網頁使用相機權限</span>
+                </div>
+            </div>
+
+            <div class="speech-status not-ready" id="speechStatus">
+                <span>⚠️</span>
+                <span>語音尚未啟用</span>
+            </div>
+
+            <button class="btn btn-speech-test" id="enableSpeechBtn" onclick="enableSpeechForIOS()">
+                🔊 啟用語音
+            </button>
+
+            <button class="btn btn-primary hidden" id="startAppBtn" onclick="closeModalAndStart()" style="width: 100%;">
+                ✓ 開始使用
+            </button>
+        </div>
+    </div>
+
+    <button class="theme-toggle" id="themeToggle" onclick="toggleTheme()">🌙</button>
+
+    <div class="container">
+        <header>
+            <h1>👨‍👩‍👧‍👦 親人辨識助手</h1>
+            <p class="subtitle">幫助您認識身邊的親人朋友</p>
+        </header>
+
+        <div class="info-section">
+            <p class="info-title">可辨識的親人：</p>
+            <div class="family-list">
+                <span class="family-item"><strong>szeto</strong> - 大兒子</span>
+                <span class="family-item"><strong>shek</strong> - 二兒子</span>
+                <span class="family-item"><strong>leung</strong> - 朋友</span>
+                <span class="family-item"><strong>lam</strong> - 啊哥</span>
+            </div>
+        </div>
+
+        <div class="video-container">
+            <div id="webcam-container">
+                <p style="color: rgba(255,255,255,0.5); font-size: 1.1rem; padding: 20px; text-align: center;">
+                    請點擊下方按鈕啟動鏡頭
+                </p>
+            </div>
+            <div class="status-bar">
+                <div class="status-dot" id="statusDot"></div>
+                <span class="status-text" id="statusText">等待啟動鏡頭...</span>
+                <span class="face-indicator not-detected hidden" id="faceIndicator">未偵測到人臉</span>
+            </div>
+        </div>
+
+        <div class="result-card" id="resultCard">
+            <p class="waiting-message" id="waitingMsg">📷 請對準鏡頭，等待辨識...</p>
+            <div class="hidden" id="resultContent">
+                <p class="result-label">✅ 辨識結果 (≥99.5%)</p>
+                <p class="result-name" id="resultName">-</p>
+                <p class="result-relation" id="resultRelation">-</p>
+                <div class="speaking-indicator hidden" id="speakingIndicator">🔊 正在播報...</div>
+            </div>
+            <div id="predictions-container"></div>
+        </div>
+
+        <div class="controls-card">
+            <div class="volume-control">
+                <span class="volume-label">
+                    <span class="volume-icon">🔊</span>
+                    聲音大小
+                </span>
+                <input type="range" class="volume-slider" id="volumeSlider" min="0" max="100" value="100">
+                <span class="volume-value" id="volumeValue">100%</span>
+            </div>
+        </div>
+
+        <div class="button-container">
+            <div class="button-row">
+                <button class="btn btn-primary" id="startBtn" onclick="startCamera()">
+                    📹 啟動鏡頭
+                </button>
+                <button class="btn btn-primary hidden" id="stopBtn" onclick="stopCamera()">
+                    ⏹️ 停止
+                </button>
+                <button class="btn btn-speak hidden" id="speakBtn" onclick="manualSpeak()">
+                    🔊 再說一次
+                </button>
+            </div>
+        </div>
+
+        <footer>
+            <p>親人辨識助手 v1.2 iOS 優化版</p>
+            <p id="voiceStatus" style="margin-top: 5px;">語音狀態：載入中...</p>
+        </footer>
+    </div>
+
+    <script>
+        // Teachable Machine model URL
+        const MODEL_URL = "https://teachablemachine.withgoogle.com/models/4guAbtPEY/";
+
+        // Confidence threshold (99.5%)
+        const CONFIDENCE_THRESHOLD = 0.995;
+
+        // Family member mapping
+        const FAMILY_MEMBERS = {
+            "szeto": { name: "szeto", relation: "大兒子", greeting: "這是szeto，您的大兒子" },
+            "shek": { name: "shek", relation: "二兒子", greeting: "這是shek，您的二兒子" },
+            "leung": { name: "leung", relation: "朋友", greeting: "這是leung，您的朋友" },
+            "lam": { name: "lam", relation: "啊哥", greeting: "這是lam，您的啊哥" }
+        };
+
+        let model, webcam, maxPredictions;
+        let faceModel = null;
+        let isRunning = false;
+        let currentVolume = 1.0;
+        let lastSpokenPerson = null;
+        let speakCooldown = false;
+        let isDarkMode = false;
+        let availableVoices = [];
+        let currentRecognizedPerson = null;
+        let faceDetected = false;
+        let speechEnabled = false;
+        let isIOS = /iPad|iPhone|iPod/.test(navigator.userAgent);
+
+        // iOS Speech Enablement
+        function enableSpeechForIOS() {
+            var btn = document.getElementById('enableSpeechBtn');
+            btn.disabled = true;
+            btn.textContent = '正在啟用...';
+
+            // Force load voices
+            if ('speechSynthesis' in window) {
+                speechSynthesis.cancel();
+                availableVoices = speechSynthesis.getVoices();
+
+                var utterance = new SpeechSynthesisUtterance('語音已啟用，您好！');
+
+                var chineseVoice = findChineseVoice();
+                if (chineseVoice) {
+                    utterance.voice = chineseVoice;
+                    utterance.lang = chineseVoice.lang;
+                } else {
+                    utterance.lang = 'zh-HK';
+                }
+
+                utterance.rate = 0.8;
+                utterance.pitch = 1.0;
+                utterance.volume = 1.0;
+
+                utterance.onend = function() {
+                    speechEnabled = true;
+                    updateSpeechStatus(true);
+                    btn.classList.add('hidden');
+                    document.getElementById('startAppBtn').classList.remove('hidden');
+                };
+
+                utterance.onerror = function(e) {
+                    console.error('Speech error:', e);
+                    btn.disabled = false;
+                    btn.textContent = '🔊 重試啟用語音';
+                };
+
+                speechSynthesis.speak(utterance);
+            } else {
+                // Browser doesn't support speech
+                speechEnabled = true;
+                updateSpeechStatus(false);
+                btn.classList.add('hidden');
+                document.getElementById('startAppBtn').classList.remove('hidden');
+            }
+        }
+
+        function updateSpeechStatus(success) {
+            var status = document.getElementById('speechStatus');
+            if (success) {
+                status.className = 'speech-status ready';
+                status.innerHTML = '<span>✓</span><span>語音已啟用</span>';
+            } else {
+                status.className = 'speech-status not-ready';
+                status.innerHTML = '<span>⚠️</span><span>語音不支援</span>';
+            }
+        }
+
+        function closeModalAndStart() {
+            document.getElementById('iosModal').classList.add('hidden');
+        }
+
+        // Initialize speech
+        function initSpeech() {
+            if ('speechSynthesis' in window) {
+                availableVoices = speechSynthesis.getVoices();
+
+                if (availableVoices.length === 0) {
+                    speechSynthesis.onvoiceschanged = function() {
+                        availableVoices = speechSynthesis.getVoices();
+                        updateVoiceStatus();
+                    };
+                } else {
+                    updateVoiceStatus();
+                }
+            } else {
+                document.getElementById('voiceStatus').textContent = '語音狀態：不支援';
+            }
+        }
+
+        function updateVoiceStatus() {
+            var chineseVoice = findChineseVoice();
+            var status = document.getElementById('voiceStatus');
+            if (chineseVoice) {
+                status.textContent = '語音：' + chineseVoice.name;
+            } else if (availableVoices.length > 0) {
+                status.textContent = '語音：預設';
+            }
+        }
+
+        function findChineseVoice() {
+            var priorities = ['zh-HK', 'zh-TW', 'zh-CN', 'zh'];
+            for (var i = 0; i < priorities.length; i++) {
+                var voice = availableVoices.find(function(v) {
+                    return v.lang.indexOf(priorities[i]) !== -1;
+                });
+                if (voice) return voice;
+            }
+            return null;
+        }
+
+        function speak(text) {
+            if (!('speechSynthesis' in window)) return;
+
+            speechSynthesis.cancel();
+
+            var utterance = new SpeechSynthesisUtterance(text);
+
+            var chineseVoice = findChineseVoice();
+            if (chineseVoice) {
+                utterance.voice = chineseVoice;
+                utterance.lang = chineseVoice.lang;
+            } else {
+                utterance.lang = 'zh-HK';
+            }
+
+            utterance.rate = 0.8;
+            utterance.pitch = 1.0;
+            utterance.volume = currentVolume;
+
+            var indicator = document.getElementById('speakingIndicator');
+            indicator.classList.remove('hidden');
+
+            utterance.onend = function() {
+                indicator.classList.add('hidden');
+            };
+
+            utterance.onerror = function() {
+                indicator.classList.add('hidden');
+            };
+
+            speechSynthesis.speak(utterance);
+        }
+
+        function speakRecognition(className) {
+            if (!FAMILY_MEMBERS[className]) return;
+
+            speak(FAMILY_MEMBERS[className].greeting);
+
+            speakCooldown = true;
+            setTimeout(function() {
+                speakCooldown = false;
+            }, 5000);
+        }
+
+        function manualSpeak() {
+            if (currentRecognizedPerson && FAMILY_MEMBERS[currentRecognizedPerson]) {
+                speak(FAMILY_MEMBERS[currentRecognizedPerson].greeting);
+            }
+        }
+
+        // Dark mode
+        if (window.matchMedia && window.matchMedia('(prefers-color-scheme: dark)').matches) {
+            document.documentElement.classList.add('dark');
+            isDarkMode = true;
+            updateThemeButton();
+        }
+
+        window.matchMedia('(prefers-color-scheme: dark)').addEventListener('change', function(e) {
+            isDarkMode = e.matches;
+            document.documentElement.classList.toggle('dark', isDarkMode);
+            updateThemeButton();
+        });
+
+        function toggleTheme() {
+            isDarkMode = !isDarkMode;
+            document.documentElement.classList.toggle('dark', isDarkMode);
+            updateThemeButton();
+        }
+
+        function updateThemeButton() {
+            document.getElementById('themeToggle').textContent = isDarkMode ? '☀️' : '🌙';
+        }
+
+        // Volume control
+        document.getElementById('volumeSlider').addEventListener('input', function(e) {
+            currentVolume = e.target.value / 100;
+            document.getElementById('volumeValue').textContent = e.target.value + '%';
+        });
+
+        // Load models
+        async function loadModels() {
+            var loadingText = document.querySelector('.loading-text');
+
+            try {
+                loadingText.innerHTML = '正在載入人臉偵測模型...<br>請稍候';
+                faceModel = await blazeface.load();
+
+                loadingText.innerHTML = '正在載入親人辨識模型...<br>請稍候';
+                var modelURL = MODEL_URL + "model.json";
+                var metadataURL = MODEL_URL + "metadata.json";
+                model = await tmImage.load(modelURL, metadataURL);
+                maxPredictions = model.getTotalClasses();
+
+                document.getElementById('loading').classList.add('hidden');
+
+                // Show iOS modal if on iOS device
+                if (!isIOS) {
+                    document.getElementById('iosModal').classList.add('hidden');
+                }
+            } catch (error) {
+                console.error("Error loading model:", error);
+                document.getElementById('loading').innerHTML =
+                    '<div style="text-align: center; color: white; padding: 30px;">' +
+                    '<p style="font-size: 1.5rem; margin-bottom: 20px;">⚠️ 載入模型失敗</p>' +
+                    '<p style="font-size: 1rem; margin-bottom: 15px;">請檢查網絡連接</p>' +
+                    '<button class="btn btn-primary" onclick="location.reload()">🔄 重新載入</button>' +
+                    '</div>';
+            }
+        }
+
+        // Camera functions
+        async function startCamera() {
+            var startBtn = document.getElementById('startBtn');
+            var stopBtn = document.getElementById('stopBtn');
+
+            startBtn.disabled = true;
+            startBtn.innerHTML = '正在啟動...';
+
+            try {
+                // Request camera with iOS-optimized constraints
+                var constraints = {
+                    video: {
+                        facingMode: 'user',
+                        width: { ideal: 640 },
+                        height: { ideal: 480 }
+                    },
+                    audio: false
+                };
+
+                var flip = true;
+                webcam = new tmImage.Webcam(640, 480, flip);
+                await webcam.setup(constraints);
+                await webcam.play();
+
+                var container = document.getElementById("webcam-container");
+                container.innerHTML = '';
+                container.appendChild(webcam.canvas);
+
+                isRunning = true;
+                startBtn.classList.add('hidden');
+                stopBtn.classList.remove('hidden');
+                document.getElementById('faceIndicator').classList.remove('hidden');
+
+                updateStatus('active', '鏡頭已啟動');
+
+                window.requestAnimationFrame(loop);
+            } catch (error) {
+                console.error("Camera error:", error);
+                startBtn.disabled = false;
+                startBtn.innerHTML = '📹 啟動鏡頭';
+
+                var errorMsg = '無法存取鏡頭';
+                if (error.name === 'NotAllowedError') {
+                    errorMsg = '請在設定中允許相機權限';
+                } else if (error.name === 'NotFoundError') {
+                    errorMsg = '找不到相機裝置';
+                }
+
+                updateStatus('', errorMsg);
+                document.getElementById("webcam-container").innerHTML =
+                    '<div style="color: #ff6b6b; font-size: 1.2rem; text-align: center; padding: 25px;">' +
+                    '<p style="font-size: 2rem; margin-bottom: 15px;">📷</p>' +
+                    '<p style="margin-bottom: 10px;">⚠️ ' + errorMsg + '</p>' +
+                    '<p style="font-size: 0.95rem; color: rgba(255,255,255,0.6);">' +
+                    '請前往 設定 → Safari → 相機 → 允許' +
+                    '</p></div>';
+            }
+        }
+
+        function stopCamera() {
+            if (webcam) {
+                webcam.stop();
+                isRunning = false;
+            }
+
+            document.getElementById('startBtn').classList.remove('hidden');
+            document.getElementById('startBtn').disabled = false;
+            document.getElementById('startBtn').innerHTML = '📹 啟動鏡頭';
+            document.getElementById('stopBtn').classList.add('hidden');
+            document.getElementById('speakBtn').classList.add('hidden');
+            document.getElementById('faceIndicator').classList.add('hidden');
+
+            document.getElementById("webcam-container").innerHTML =
+                '<p style="color: rgba(255,255,255,0.5); font-size: 1.1rem; padding: 20px; text-align: center;">請點擊下方按鈕啟動鏡頭</p>';
+
+            showWaiting('📷 請對準鏡頭，等待辨識...');
+            updateStatus('', '鏡頭已停止');
+            document.getElementById('predictions-container').innerHTML = '';
+
+            lastSpokenPerson = null;
+            currentRecognizedPerson = null;
+            faceDetected = false;
+        }
+
+        async function loop() {
+            if (!isRunning) return;
+            webcam.update();
+            await detectAndPredict();
+            window.requestAnimationFrame(loop);
+        }
+
+        async function detectAndPredict() {
+            if (!model || !webcam || !faceModel) return;
+
+            var faceIndicator = document.getElementById('faceIndicator');
+
+            // Detect face
+            try {
+                var faces = await faceModel.estimateFaces(webcam.canvas, false);
+                faceDetected = faces.length > 0;
+            } catch (e) {
+                faceDetected = false;
+            }
+
+            if (faceDetected) {
+                faceIndicator.textContent = '✓ 已偵測到人臉';
+                faceIndicator.className = 'face-indicator detected';
+            } else {
+                faceIndicator.textContent = '✗ 未偵測到人臉';
+                faceIndicator.className = 'face-indicator not-detected';
+                showWaiting('👤 請將臉部對準鏡頭...');
+                updateStatus('no-face', '未偵測到人臉');
+                document.getElementById('predictions-container').innerHTML =
+                    '<p style="font-size: 1rem; color: var(--text-secondary); text-align: center;">請將臉部對準鏡頭</p>';
+                lastSpokenPerson = null;
+                currentRecognizedPerson = null;
+                return;
+            }
+
+            // Run recognition
+            var predictions = await model.predict(webcam.canvas);
+            displayPredictions(predictions);
+
+            // Find best match
+            var bestPrediction = null;
+            var highestProb = 0;
+
+            for (var i = 0; i < predictions.length; i++) {
+                if (predictions[i].probability > highestProb) {
+                    highestProb = predictions[i].probability;
+                    bestPrediction = predictions[i];
+                }
+            }
+
+            if (bestPrediction && highestProb >= CONFIDENCE_THRESHOLD) {
+                var className = bestPrediction.className;
+
+                if (FAMILY_MEMBERS[className]) {
+                    updateStatus('detecting', '已辨識：' + className + ' (' + (highestProb * 100).toFixed(1) + '%)');
+                    showResult(className);
+                    currentRecognizedPerson = className;
+
+                    if (lastSpokenPerson !== className && !speakCooldown) {
+                        speakRecognition(className);
+                        lastSpokenPerson = className;
+                    }
+                }
+            } else {
+                showWaiting('📷 正在分析... (' + Math.round(highestProb * 100) + '%)');
+                updateStatus('active', '正在分析... (' + Math.round(highestProb * 100) + '%)');
+                lastSpokenPerson = null;
+                currentRecognizedPerson = null;
+            }
+        }
+
+        function displayPredictions(predictions) {
+            var container = document.getElementById('predictions-container');
+            var html = '<p style="font-size: 1rem; color: var(--text-secondary); margin-bottom: 10px; text-align: center;">辨識信心度 (需要≥99.5%)：</p>';
+
+            for (var i = 0; i < predictions.length; i++) {
+                var pred = predictions[i];
+                var percent = (pred.probability * 100).toFixed(1);
+                var isHigh = pred.probability >= CONFIDENCE_THRESHOLD;
+
+                html += '<div class="prediction-bar">' +
+                    '<span class="prediction-name" style="' + (isHigh ? 'color: var(--success); font-weight: 700;' : '') + '">' + pred.className + '</span>' +
+                    '<div class="prediction-meter">' +
+                    '<div class="prediction-fill" style="width: ' + percent + '%; ' + (isHigh ? 'background: linear-gradient(90deg, var(--success) 0%, #66BB6A 100%);' : '') + '"></div>' +
+                    '</div>' +
+                    '<span class="prediction-percent" style="' + (isHigh ? 'color: var(--success); font-weight: 700;' : '') + '">' + percent + '%</span>' +
+                    '</div>';
+            }
+
+            container.innerHTML = html;
+        }
+
+        function showResult(className) {
+            var member = FAMILY_MEMBERS[className];
+            if (!member) return;
+
+            document.getElementById('waitingMsg').classList.add('hidden');
+            document.getElementById('resultContent').classList.remove('hidden');
+            document.getElementById('resultName').textContent = member.name;
+            document.getElementById('resultRelation').textContent = member.relation;
+            document.getElementById('resultCard').classList.add('recognized');
+            document.getElementById('speakBtn').classList.remove('hidden');
+        }
+
+        function showWaiting(message) {
+            document.getElementById('waitingMsg').textContent = message;
+            document.getElementById('waitingMsg').classList.remove('hidden');
+            document.getElementById('resultContent').classList.add('hidden');
+            document.getElementById('resultCard').classList.remove('recognized');
+            document.getElementById('speakBtn').classList.add('hidden');
+            document.getElementById('speakingIndicator').classList.add('hidden');
+        }
+
+        function updateStatus(state, text) {
+            var dot = document.getElementById('statusDot');
+            var statusText = document.getElementById('statusText');
+
+            dot.className = 'status-dot';
+            if (state) dot.classList.add(state);
+            statusText.textContent = text;
+        }
+
+        // Initialize
+        window.onload = function() {
+            initSpeech();
+            loadModels();
+        };
+    </script>
+</body>
+</html>
